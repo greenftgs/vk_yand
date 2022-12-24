@@ -1,7 +1,6 @@
 import json
 import requests
 import time
-from tqdm import tqdm
 
 class VK:
 
@@ -17,174 +16,94 @@ class VK:
         response = requests.get(url, params={**self.params, **params})
         return response.json()
 
-access_token = '3af827103af827103af827100139e9caaa33af83af827105966de84b3ba2c00248c5e70'
+
+access_token = '3af827103af827103a....'
 user_id = '493676177'
 vk = VK(access_token, user_id)
 print(vk.users_info())
 
 token_vk = access_token
+start_time = time.time()
+
 
 def take_token():
     with open('../../Desktop/toke.txt', 'r') as file:
         return file.readline()
 
-token_yd = take_token()
 
-#
-# class YaUploader:
-#     files_url = 'https://cloud-api.yandex.net/v1/disk/resources/files'
-#     upload_url = 'https://cloud-api.yandex.net/v1/disk/resources/upload'
-#
-#     def __init__(self, token: str):
-#         self.token = token
-#
-#     @property
-#     def headers(self):
-#         return {
-#             'Content_Type': 'application/json',
-#             'Authorization': f'OAuth {self.token}'
-#         }
-#
-#     def get_upload_link(self, file_path: str):
-#         params = {'path': file_path, 'overwrite': 'true'}
-#         response = requests.get(self.upload_url, params=params, headers=self.headers)
-#         return response.json()
-#
-#     def upload(self, file_path):
-#         href = self.get_upload_link(file_path).get('href')
-#         if not href:
-#             return print(f'Ошибка загрузки: {self.get_upload_link(file_path)["message"]}')
-#
-#         with open(file_path, 'rb') as file:
-#             try:
-#                 response = requests.put(href, data=file)
-#                 if response.status_code == 201:
-#                     print('Загрузка файла проведена успешно')
-#             except (FileNotFoundError, Exception, KeyError):
-#                 print(f'Ошибка загрузки: , {self.get_upload_link(file_path)["message"]}')
-#
-#
-# ya_client = YaUploader(take_token())
-# ya_client.upload('pdf.pdf')
+vk_api_token = ""
+yandex_api_token = take_token()
+vk_id = '493676177'
+progressBar = [1, 2, 3, 4, 5, 6, 7, 8]
 
 
-class ApiBasic:
-    """Родительский класс с общей функцией отправлять запросы"""
-    def _send_request(self, method, path, **kwargs):
-        if method == 'get':
-            response = requests.get(url=path, **kwargs).json()
-        elif method == 'post':
-            response = requests.post(url=path, **kwargs).json()
-        elif method == 'put':
-            response = requests.put(url=path, **kwargs).json()
-        return response
+class PhotoUpload:
+    def __init__(self, yandex_token: str, vk_token: str, vkId: str):
+        self.version_vk = '5.52'
+        self.yandex_token = yandex_token
+        self.vk_token = vk_token
+        self.vkId = vkId
+        self.dir_path = ''
 
+    def getUserInfo(self):
+        resp = requests.get('https://api.vk.com/method/users.get',
+                            params={'access_token': self.vk_token, 'user_id': self.vkId, 'v': self.version_vk})
+        return resp.json()
 
-class VkUser(ApiBasic):
-    url = 'https://api.vk.com/method/'
+    def getUserPhotos(self):
+        resp = requests.get('https://api.vk.com/method/photos.get',
+                            params={'access_token': self.vk_token, 'user_id': self.vkId, 'extended': 1,
+                                    'album_id': 'profile', 'v': self.version_vk, 'photo_sizes': 1})
+        print("Получение фотографий --- %s seconds ---" % (time.time() - start_time))
+        resp = resp.json()
+        result = resp['response']
+        return result
 
-    def __init__(self, token):
-        self.params = {
-            'access_token': token,
-            'v': '5.131'
-        }
+    def sortUserPhotos(self, photos):
+        sorted_photos = []
+        if 'items' in photos:
+            for elements in photos['items']:
+                el = {'height': 0, 'width': 0}
+                for photo in elements['sizes']:
+                    if el['height'] * el['width'] < photo['height'] * photo['width']:
+                        el = photo
+                        el['name'] = elements['likes']['count']
+                sorted_photos.append(el)
+        sorted_photos = sorted(sorted_photos, key=lambda k: k['width'] * k['height'], reverse=True)
+        print("Сортировка фотографий --- %s seconds ---" % (time.time() - start_time))
+        return sorted_photos
 
-    # Получаем информацию о пользователе
-    def get_info(self, user_id):
-        info_url = self.url + 'users.get'
-        info_params = {
-            'user_id': user_id,
-        }
-        res = self._send_request('get', info_url, params={**self.params, **info_params})
-        return res
+    def createYandexDir(self):
+        if len(self.dir_path) > 0:
+            resp = requests.put('https://cloud-api.yandex.net/v1/disk/resources/',
+                                params={'path': self.dir_path},
+                                headers={'Authorization': f'OAuth {self.yandex_token}'})
+            return resp.json()
+        else:
+            return 'Не указан путь'
 
-    # Получаем словарь фотографий,где
-    # ключ - порядковый номер
-    # значения - ссылка, количество лайков, размер, дата, имя фотографии (количество лайков с датой при необходимости)
-    def get_photo(self, user_id):
-        photo_url = self.url + 'photos.get'
-        photo_params = {
-            'extended': 1,
-            'photo_sizes': 1,
-            'album_id': 'profile',
-            'owner_id': user_id
-        }
-        res = self._send_request('get', photo_url, params={**self.params, **photo_params})
-        info_about_photo = {}
-        id = 0
-        all_likes = []
-        for item in res['response']['items']:
-            likes = item['likes']['count']
-            all_likes.append(likes)
-        for item in res['response']['items']:
-            id += 1
-            likes = item['likes']['count']
-            photo = item['sizes'][-1]['url']
-            date = item['date']
-            for sizes in item['sizes']:
-                size = sizes['type']
-                info_about_photo[id] = [photo, likes, size, date]
-        id = 0
-        for like in all_likes:
-            id += 1
-            if all_likes.count(like) == 1:
-                photo_name = like
-                info_about_photo[id].append(photo_name)
-            else:
-                photo_name = f'{like}_{info_about_photo.get(id)[3]}'
-                info_about_photo[id].append(photo_name)
-        return info_about_photo
+    def uploadYandex(self, file_path: str, photos, count=5):
+        result = []
+        for photo in zip(range(count), photos):
 
+            resp = requests.post('https://cloud-api.yandex.net/v1/disk/resources/upload',
+                                 params={'path': self.dir_path + str(photo[1]['name']),
+                                         'url': photo[1]['src']},
+                                 headers={'Authorization': f'OAuth {self.yandex_token}'})
+            if 'href' in resp.json():
+                result.append({"file_name": photo[1]['name'], "size": photo[1]['type']})
+            print("Загрузка фотографии "+str(photo[1]['name'])+" --- %s seconds ---" % (time.time() - start_time))
+        return result
 
-class YandexUser(ApiBasic):
-    host = 'https://cloud-api.yandex.net/v1/disk'
+    def createJsonFile(self, data):
+        f = open('result.json', 'w', encoding="utf-8")
+        print("Созадние json файла --- %s seconds ---" % (time.time() - start_time))
+        json.dump(data, f)
 
-    def __init__(self, token):
-        self.token = token
-
-    def get_headers(self):
-        return {
-            'Content-Type': 'application/json',
-            'Authorization': 'OAuth {}'.format(self.token)
-        }
-
-    # Создаем папку где будут храниться фотографии
-    def get_folder(self, name):
-        url = 'https://cloud-api.yandex.net/v1/disk/resources/'
-        headers = self.get_headers()
-        params = {
-            'path': name
-        }
-        res = self._send_request('put', url, params=params, headers=headers)
-        return res
-
-    # Загружаем фотографии по ссылке из профиля vk.com в созданную папку
-    def download_by_link(self, link, photo_name):
-        upload_url = 'https://cloud-api.yandex.net/v1/disk/resources/upload'
-        headers = self.get_headers()
-        params = {'path': f"{name}/{photo_name}", 'url': link}
-        res = self._send_request('post', upload_url, params=params, headers=headers)
-        return res
-
-
-if __name__ == '__main__':
-    id_user_vk = input('Введите ID пользоввателя vk.com: ')
-    if id_user_vk.isdigit() is True:
-        user = VkUser(token_vk)
-        for item in user.get_info(id_user_vk)['response']:
-            name = f"Фото профиля vk.com {item['first_name']} {item['last_name']} (id {item['id']})"
-            print(name)
-        all_photos = user.get_photo(id_user_vk)
-        yandex = YandexUser(token_yd)
-        yandex.get_folder(name)
-        photos_list = []
-        for keys, values in tqdm(all_photos.items()):
-            yandex.download_by_link(values[0], values[4])
-            photo_vk = {'file_name': f"{values[4]}.jpg", 'size': f"{values[2]}"}
-            photos_list.append(photo_vk)
-            time.sleep(1)
-        print(f'{len(all_photos.items())} фотографий успешно загружены на Яндекс.Диск')
-        with open('photo_vk.json', 'w') as f:
-            json.dump(photos_list, f, ensure_ascii=False, indent=2)
-    else:
-        print('ID пользователя введен неверно')
+photoUploader = PhotoUpload(yandex_api_token, vk_api_token, vk_id)
+photos = photoUploader.getUserPhotos()
+photos = photoUploader.sortUserPhotos(photos)
+photoUploader.dir_path = '/124/'
+photoUploader.createYandexDir()
+jsonPhotos = photoUploader.uploadYandex(photoUploader.dir_path, photos, 2)
+photoUploader.createJsonFile(jsonPhotos)
